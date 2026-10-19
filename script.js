@@ -1,8 +1,10 @@
 "use strict";
 
-const ROWS = 9;
-const COLUMNS = 9;
-const MINE_TOTAL = 10;
+const DIFFICULTIES = {
+  beginner: { label: "초급", rows: 9, columns: 9, mines: 10 },
+  intermediate: { label: "중급", rows: 16, columns: 16, mines: 40 },
+  expert: { label: "고급", rows: 16, columns: 30, mines: 99 },
+};
 const MARKS = ["", "flag", "question"];
 const MARK_SYMBOLS = {
   "": "",
@@ -16,14 +18,19 @@ const timerElement = document.querySelector("#timer");
 const statusElement = document.querySelector("#game-status");
 const restartButton = document.querySelector("#restart");
 const faceElement = document.querySelector("#face");
+const difficultyElement = document.querySelector("#difficulty");
+const soundToggleButton = document.querySelector("#sound-toggle");
 
 let cells = [];
+let difficulty = DIFFICULTIES[difficultyElement.value];
 let flags = 0;
 let revealed = 0;
 let started = false;
 let finished = false;
 let seconds = 0;
 let timerId = null;
+let audioContext = null;
+let soundEnabled = true;
 
 function formatCounter(value) {
   if (value < 0) return `-${String(Math.abs(value)).padStart(2, "0")}`;
@@ -31,8 +38,42 @@ function formatCounter(value) {
 }
 
 function updateCounters() {
-  mineCountElement.textContent = formatCounter(MINE_TOTAL - flags);
+  mineCountElement.textContent = formatCounter(difficulty.mines - flags);
   timerElement.textContent = formatCounter(Math.min(seconds, 999));
+}
+
+function playSound(kind) {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!soundEnabled || !AudioContextClass) return;
+
+  audioContext ??= new AudioContextClass();
+  const sounds = {
+    click: [{ frequency: 520, duration: 0.045, delay: 0 }],
+    explosion: [
+      { frequency: 180, duration: 0.16, delay: 0 },
+      { frequency: 90, duration: 0.24, delay: 0.09 },
+    ],
+    victory: [
+      { frequency: 523, duration: 0.12, delay: 0 },
+      { frequency: 659, duration: 0.12, delay: 0.12 },
+      { frequency: 784, duration: 0.22, delay: 0.24 },
+    ],
+  };
+
+  sounds[kind].forEach(({ frequency, duration, delay }) => {
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const startTime = audioContext.currentTime + delay;
+    oscillator.type = kind === "explosion" ? "sawtooth" : "sine";
+    oscillator.frequency.setValueAtTime(frequency, startTime);
+    gain.gain.setValueAtTime(0.0001, startTime);
+    gain.gain.exponentialRampToValueAtTime(0.12, startTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(startTime);
+    oscillator.stop(startTime + duration);
+  });
 }
 
 function getNeighbors(row, column) {
@@ -45,9 +86,9 @@ function getNeighbors(row, column) {
       const neighborColumn = column + columnOffset;
       if (
         neighborRow >= 0 &&
-        neighborRow < ROWS &&
+        neighborRow < difficulty.rows &&
         neighborColumn >= 0 &&
-        neighborColumn < COLUMNS
+        neighborColumn < difficulty.columns
       ) {
         neighbors.push(cells[neighborRow][neighborColumn]);
       }
@@ -69,7 +110,7 @@ function placeMines(safeCell) {
     ];
   }
 
-  candidates.slice(0, MINE_TOTAL).forEach((cell) => {
+  candidates.slice(0, difficulty.mines).forEach((cell) => {
     cell.mine = true;
   });
 
@@ -116,7 +157,19 @@ function updateCellLabel(cell) {
 }
 
 function revealCell(cell) {
-  if (finished || cell.revealed || cell.mark !== "") return;
+  if (finished || cell.mark === "flag") return;
+
+  if (cell.revealed) {
+    chordCell(cell);
+    return;
+  }
+
+  if (cell.mark === "question") {
+    cell.mark = "";
+    cell.element.textContent = "";
+    cell.element.classList.remove("cell--questioned");
+    updateCellLabel(cell);
+  }
 
   if (!started) {
     placeMines(cell);
@@ -148,9 +201,23 @@ function revealCell(cell) {
     });
   }
 
-  if (revealed === ROWS * COLUMNS - MINE_TOTAL) {
+  if (revealed === difficulty.rows * difficulty.columns - difficulty.mines) {
     endGame(true);
   }
+}
+
+function chordCell(cell) {
+  if (cell.adjacentMines === 0) return;
+
+  const neighbors = getNeighbors(cell.row, cell.column);
+  const flaggedNeighbors = neighbors.filter(
+    (neighbor) => neighbor.mark === "flag",
+  ).length;
+  if (flaggedNeighbors !== cell.adjacentMines) return;
+
+  neighbors
+    .filter((neighbor) => !neighbor.revealed && neighbor.mark !== "flag")
+    .forEach((neighbor) => revealCell(neighbor));
 }
 
 function toggleMark(cell) {
@@ -166,11 +233,14 @@ function toggleMark(cell) {
   cell.element.classList.toggle("cell--questioned", cell.mark === "question");
   updateCellLabel(cell);
   updateCounters();
+  playSound("click");
 }
 
 function endGame(won) {
   finished = true;
   stopTimer();
+  boardElement.classList.toggle("board--won", won);
+  playSound(won ? "victory" : "explosion");
   faceElement.textContent = won ? "😎" : "😵";
   statusElement.textContent = won
     ? "축하합니다! 모든 안전한 칸을 열었습니다."
@@ -192,8 +262,14 @@ function endGame(won) {
 
 function createBoard() {
   boardElement.replaceChildren();
-  cells = Array.from({ length: ROWS }, (_, row) =>
-    Array.from({ length: COLUMNS }, (_, column) => {
+  boardElement.classList.remove("board--won");
+  boardElement.style.setProperty("--columns", difficulty.columns);
+  boardElement.setAttribute(
+    "aria-label",
+    `${difficulty.columns}열 ${difficulty.rows}행 지뢰찾기 게임판`,
+  );
+  cells = Array.from({ length: difficulty.rows }, (_, row) =>
+    Array.from({ length: difficulty.columns }, (_, column) => {
       const cell = {
         row,
         column,
@@ -207,7 +283,30 @@ function createBoard() {
       cell.element.type = "button";
       cell.element.className = "cell";
       updateCellLabel(cell);
-      cell.element.addEventListener("click", () => revealCell(cell));
+      let suppressClick = false;
+      cell.element.addEventListener("click", () => {
+        if (suppressClick) {
+          suppressClick = false;
+          return;
+        }
+        if (!finished && cell.mark !== "flag") playSound("click");
+        revealCell(cell);
+      });
+      cell.element.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        chordCell(cell);
+      });
+      cell.element.addEventListener("mousedown", (event) => {
+        if (event.buttons === 3) {
+          event.preventDefault();
+          suppressClick = true;
+          chordCell(cell);
+          playSound("click");
+          window.setTimeout(() => {
+            suppressClick = false;
+          }, 0);
+        }
+      });
       cell.element.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         toggleMark(cell);
@@ -231,5 +330,23 @@ function resetGame() {
   createBoard();
 }
 
+function changeDifficulty() {
+  difficulty = DIFFICULTIES[difficultyElement.value];
+  resetGame();
+  statusElement.textContent = `${difficulty.label} 난이도로 새 게임을 시작합니다.`;
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  soundToggleButton.textContent = soundEnabled ? "🔊" : "🔇";
+  soundToggleButton.setAttribute("aria-pressed", String(soundEnabled));
+  soundToggleButton.setAttribute(
+    "aria-label",
+    soundEnabled ? "효과음 끄기" : "효과음 켜기",
+  );
+}
+
 restartButton.addEventListener("click", resetGame);
+difficultyElement.addEventListener("change", changeDifficulty);
+soundToggleButton.addEventListener("click", toggleSound);
 resetGame();

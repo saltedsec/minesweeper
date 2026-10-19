@@ -11,10 +11,31 @@
   <body>
     <main class="game">
       <header class="game__header">
-        <p class="eyebrow">MINESWEEPER</p>
-        <h1>지뢰찾기</h1>
-        <p class="game__subtitle">지뢰를 피해 모든 안전한 칸을 열어보세요.</p>
+        <h1><span aria-hidden="true">💣</span> Minesweeper</h1>
+        <div class="window-controls" aria-hidden="true">
+          <span>_</span>
+          <span>□</span>
+          <span>×</span>
+        </div>
       </header>
+
+      <section class="game__options" aria-label="게임 설정">
+        <label class="difficulty">
+          <span>난이도</span>
+          <select id="difficulty" aria-label="난이도 선택">
+            <option value="beginner">초급 · 9 × 9 · 지뢰 10개</option>
+            <option value="intermediate">중급 · 16 × 16 · 지뢰 40개</option>
+            <option value="expert">고급 · 30 × 16 · 지뢰 99개</option>
+          </select>
+        </label>
+        <button
+          id="sound-toggle"
+          class="sound-toggle"
+          type="button"
+          aria-label="효과음 끄기"
+          aria-pressed="true"
+        >🔊</button>
+      </section>
 
       <section class="game__panel" aria-label="게임 정보">
         <div class="counter" aria-label="남은 지뢰 수">
@@ -34,11 +55,14 @@
         칸을 열어 게임을 시작하세요.
       </p>
 
-      <section id="board" class="board" aria-label="9 곱하기 9 지뢰찾기 게임판"></section>
+      <div class="board-frame">
+        <section id="board" class="board" aria-label="9 곱하기 9 지뢰찾기 게임판"></section>
+      </div>
 
       <footer class="game__help">
         <span><strong>좌클릭</strong> 칸 열기</span>
         <span><strong>우클릭</strong> 깃발 · 물음표 표시</span>
+        <span><strong>더블클릭 / 양쪽 클릭</strong> 주변 칸 열기</span>
       </footer>
     </main>
   </body>
